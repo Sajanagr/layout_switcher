@@ -1,0 +1,8 @@
+*.bak
+*~*
+venv
+.envrc
+__pycache__
+.project
+.pydevproject
+

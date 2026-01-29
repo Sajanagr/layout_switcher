@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=KBFix
+Comment=Конвертация выделенного текста между RU/EN
+Exec=/usr/bin/python3 /home/sajanagr/dev/puntoswitcher/tray_app.py
+Icon=kbfix
+Terminal=false
+Categories=Utility;
+StartupNotify=false

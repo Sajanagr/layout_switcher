@@ -1,0 +1,9 @@
+#!/bin/bash
+
+SCRIPT_DIR="$( cd  "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd $SCRIPT_DIR
+#perl -m venv venv
+source venv/bin/activate
+#pip install pyperclip pynput
+python3 layout_switcher.py --key win
+
