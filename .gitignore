@@ -3,8 +3,17 @@
 venv
 .envrc
 __pycache__
+kbfix/__pycache__
 .project
 .pydevproject
 
 venv/
 __pycache__/
+# --- Debian packaging build artifacts (do not commit) ---
+/debian/.debhelper/
+/debian/kbfix/
+/debian/debhelper-build-stamp
+/debian/files
+/debian/*.substvars
+/debian/*.log
+/debian/*.debhelper

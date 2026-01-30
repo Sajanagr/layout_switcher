@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# /usr/bin/kbfix
+#
+# Лаунчер для KBFix.
+# Debian-пакет кладёт код в /usr/lib/kbfix/kbfix и не использует pip.
+# Поэтому для запуска мы добавляем /usr/lib/kbfix в PYTHONPATH и вызываем:
+#   python3 -m kbfix
+#
+# Важно:
+# - системную раскладку KBFix не меняет
+# - приложение запускается как tray GUI и работает до выхода пользователем
+
+set -euo pipefail
+
+export PYTHONPATH="/usr/lib/kbfix:${PYTHONPATH:-}"
+exec python3 -m kbfix

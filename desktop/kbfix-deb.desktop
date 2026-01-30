@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=KBFix
+Comment=Конвертация выделенного текста между RU/EN
+Exec=kbfix
+Icon=kbfix
+Terminal=false
+Categories=Utility;
+StartupNotify=false

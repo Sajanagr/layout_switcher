@@ -1,0 +1,4 @@
+kbfix/ usr/lib/kbfix/
+desktop/kbfix-deb.desktop usr/share/applications/
+assets/kbfix.png usr/share/icons/hicolor/128x128/apps/
+scripts/kbfix usr/bin/

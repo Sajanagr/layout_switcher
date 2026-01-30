@@ -1,0 +1,5 @@
+kbfix (0.1.0-1) unstable; urgency=medium
+
+  * Initial Debian package.
+
+ -- Sajanagr <unknown@localhost>  Fri, 30 Jan 2026 12:00:00 +0000
