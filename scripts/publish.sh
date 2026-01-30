@@ -55,7 +55,42 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   warn "Есть незакоммиченные изменения."
   git status --porcelain
   echo
-  err "Сначала закоммить изменения (или откати), затем запускай publish.sh."
+  while true; do
+    echo "Выбери действие:"
+    echo " [1] Автокоммитить изменения (фикс-сообщение)"
+    echo " [2] Закоммитить изменения с моим сообщением"
+    echo " [3] Откатить изменения"
+    echo " [Enter] Отменить publish"
+    read -r choice
+    if [[ "$choice" == "1" ]]; then
+      git add -A
+      git commit -m "chore: auto-commit before publish"
+      info "Изменения закоммичены автоматически"
+      break
+    elif [[ "$choice" == "2" ]]; then
+      echo "Введите сообщение коммита:"
+      read -r message
+      if [[ -z "${message:-}" ]]; then
+        warn "Сообщение коммита не задано."
+      fi
+      git add -A
+      git commit -m "$message"
+      info "Изменения закоммичены с пользовательским сообщением"
+      break
+    elif [[ "$choice" == "3" ]]; then
+      echo "Подтвердите откат изменений. Введите YES:"
+      read -r confirm
+      if [[ "$confirm" == "YES" ]]; then
+        git reset --hard
+        warn "Изменения откатены"
+        break
+      else
+        warn "Откат отменен"
+      fi
+    else
+      err "Публикация отменена пользователем."
+    fi
+  done
 fi
 
 # ----------------------------
@@ -125,11 +160,12 @@ fi
 
 # Ищем собранный .deb рядом (dpkg-buildpackage кладет в родительскую директорию)
 deb_file=""
-if ls -1 ../kbfix_"${deb_ver}"_*_all.deb >/dev/null 2>&1; then
-  deb_file="$(ls -1 ../kbfix_"${deb_ver}"_*_all.deb | head -n 1)"
+deb_expected="../kbfix_${deb_ver}_all.deb"
+if [[ -f "$deb_expected" ]]; then
+  deb_file="$deb_expected"
   info "Найден .deb: ${deb_file}"
 else
-  warn ".deb не найден по шаблону ../kbfix_${deb_ver}_*_all.deb"
+  warn ".deb не найден: ${deb_expected}"
   warn "Если сборку пропустили — это нормально. Если собирали — проверь вывод dpkg-buildpackage."
 fi
 
@@ -139,14 +175,19 @@ fi
 echo
 # Проверяем, что тег не существует
 if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
-  err "Тег ${tag} уже существует. Выбери другую версию или удали тег вручную."
+  warn "Тег ${tag} уже существует. Создание тега будет пропущено."
+  tag_already_exists="yes"
+else
+  tag_already_exists="no"
 fi
 
-if ask_yes_no "Создать annotated tag ${tag} на текущем коммите?"; then
-  git tag -a "${tag}" -m "Release ${tag}"
-  info "Тег создан: ${tag}"
-else
-  warn "Тег не создан"
+if [[ "$tag_already_exists" == "no" ]]; then
+  if ask_yes_no "Создать annotated tag ${tag} на текущем коммите?"; then
+    git tag -a "${tag}" -m "Release ${tag}"
+    info "Тег создан: ${tag}"
+  else
+    warn "Тег не создан"
+  fi
 fi
 
 # ----------------------------
