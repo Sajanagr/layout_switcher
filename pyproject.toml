@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kbfix"
+version = "0.1.0"
+description = "KBFix: конвертация выделенного текста RU/EN по хоткею, без смены системной раскладки"
+readme = "README_ru.md"
+requires-python = ">=3.10"
+dependencies = [
+  "pyperclip>=1.8.2",
+  "pynput>=1.7.6",
+  "PyGObject>=3.42.0",
+]
+
+[project.scripts]
+kbfix = "kbfix.__main__:main"

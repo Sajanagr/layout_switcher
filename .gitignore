@@ -6,3 +6,5 @@ __pycache__
 .project
 .pydevproject
 
+venv/
+__pycache__/

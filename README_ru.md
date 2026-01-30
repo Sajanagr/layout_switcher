@@ -88,3 +88,41 @@ python3 layout_switcher.py
 Написано с помощью deepseek.com
 https://github.com/Pilat66/layout_switcher
 
+### Установка
+
+```bash
+git clone https://github.com/Sajanagr/layout_switcher.git
+cd layout_switcher
+chmod +x install.sh
+./install.sh
+```
+
+После установки приложение появится в меню и автоматически добавится в автозапуск.
+
+---
+
+### Запуск вручную
+
+```bash
+python3 -m kbfix
+```
+
+По умолчанию приложение запускается через tray (значок в системной панели).
+
+---
+
+### Удаление
+
+```bash
+chmod +x uninstall.sh
+./uninstall.sh
+```
+
+Скрипт полностью удаляет:
+
+— python-пакет
+— desktop-файлы
+— автозапуск
+— иконку
+
+sudo не требуется.
