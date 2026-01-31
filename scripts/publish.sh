@@ -51,7 +51,7 @@ fi
 # Покажем статус и подтвердим ветку для публикации
 echo
 info "Текущая ветка: $branch"
-if ! ask_yes_no "Публиковать из ветки ${branch}?"; then
+if ! ask_yes_no "Публиковать из ветки ${branch}? (y = использовать эту ветку, Enter = ввести другую)"; then
   read -r -p "Введите имя ветки: " new_branch
   [[ -n "${new_branch:-}" ]] || err "Имя ветки не задано."
   if git show-ref --verify --quiet refs/heads/"$new_branch"; then
@@ -77,7 +77,7 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
     echo " [2] Закоммитить изменения с моим сообщением"
     echo " [3] Откатить tracked и staged изменения"
     echo " [4] Очистка untracked файлов (git clean -ffd, ОПАСНО)"
-    echo " [5] Полная очистка включая ignored (git clean -ffdx, ОЧЕНЬ ОПАСНО)"
+    echo " [5] Удалит untracked и ignored файлы (даже если они в .gitignore)"
     echo " [Enter] Отменить publish"
     echo -n "Выбор действия: "
     read -r choice
@@ -107,7 +107,7 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
       info "Изменения закоммичены с пользовательским сообщением"
       break
     elif [[ "$choice" == "3" ]]; then
-      echo "Подтвердите откат изменений. Введите YES:"
+      echo "Сбросит изменения в tracked файлах. Введите YES:"
       read -r confirm
       if [[ "$confirm" == "YES" ]]; then
         git reset --hard
@@ -118,7 +118,7 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
         continue
       fi
     elif [[ "$choice" == "4" ]]; then
-      echo "Очистка удалит untracked файлы. Введите YES:"
+      echo "Удалит untracked файлы. Введите YES:"
       read -r confirm_clean
       if [[ "$confirm_clean" == "YES" ]]; then
         git clean -ffd
@@ -129,7 +129,7 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
         continue
       fi
     elif [[ "$choice" == "5" ]]; then
-      echo "Полная очистка удалит untracked и ignored файлы. Введите YES:"
+      echo "Удалит untracked и ignored файлы (даже если они в .gitignore). Введите YES:"
       read -r confirm_clean_all
       if [[ "$confirm_clean_all" == "YES" ]]; then
         git clean -ffdx
@@ -150,14 +150,14 @@ fi
 # Синхронизация с origin
 # ----------------------------
 git remote get-url origin >/dev/null 2>&1 || err "Не настроен remote origin."
-if ask_yes_no "Обновить список тегов из origin (git fetch --tags)?"; then
+if ask_yes_no "Обновить теги из GitHub? (y = скачает новые теги, Enter = пропустит)"; then
   git fetch --tags origin
   info "Обновление тегов выполнено"
 else
   warn "fetch пропущен"
 fi
 
-if ask_yes_no "Обновить текущую ветку ${branch} из origin с rebase?"; then
+if ask_yes_no "Обновить ветку ${branch} из GitHub с rebase? (y = подтянет и применит поверх, Enter = пропустит)"; then
   git pull --rebase origin "$branch"
   info "Обновление ветки выполнено"
 else
@@ -168,7 +168,7 @@ fi
 # Версия релиза
 # ----------------------------
 release_enabled="no"
-if ask_yes_no "Выпускать релиз (тег + GitHub Release)?"; then
+if ask_yes_no "Выпускать релиз (тег + GitHub Release)? (y = спросит версию и создаст релиз, Enter = без релиза)"; then
   release_enabled="yes"
 fi
 
@@ -220,7 +220,7 @@ fi
 # ----------------------------
 build_done="no"
 echo
-if ask_yes_no "Собрать .deb пакет через dpkg-buildpackage -us -uc?"; then
+if ask_yes_no "Собрать .deb пакет? (y = соберёт в ../, Enter = пропустит)"; then
   # Чистим старые артефакты именно сборки (не репозиторий!)
   # Важно: debian/ тут трогать нельзя, только ../*.deb и ../*.buildinfo и т.п.
   info "Запускаю сборку..."
@@ -234,6 +234,10 @@ if [[ "$release_enabled" == "no" && "$build_done" == "yes" ]]; then
   warn "Режим без релиза: сборка выполнена, артефакты находятся в родительской директории (../)."
   if ls -1 ../${pkg_name}_*.deb >/dev/null 2>&1; then
     ls -1 ../${pkg_name}_*.deb | head -n 5
+  fi
+  deb_file="$(ls -1 ../${pkg_name}_*.deb 2>/dev/null | head -n 1 || true)"
+  if [[ -n "${deb_file:-}" && -f "${deb_file}" ]]; then
+    info "Найден .deb: ${deb_file}"
   fi
 fi
 
@@ -282,7 +286,7 @@ fi
 # Push ветки и тегов
 # ----------------------------
 echo
-if ask_yes_no "Отправить ветку ${branch} в origin (git push)?"; then
+if ask_yes_no "Отправить ветку ${branch} в GitHub? (y = отправит коммиты, Enter = пропустит)"; then
   git push origin "${branch}"
   info "Ветка запушена: origin/${branch}"
 else
@@ -290,9 +294,9 @@ else
 fi
 
 if [[ "$release_enabled" == "yes" ]]; then
-  if ask_yes_no "Запушить теги в origin?"; then
-    git push origin --tags
-    info "Теги запушены"
+  if ask_yes_no "Отправить тег релиза ${tag} в GitHub? (y = отправит ТОЛЬКО этот тег, Enter = пропустит)"; then
+    git push origin "${tag}"
+    info "Тег релиза запушен: ${tag}"
   else
     warn "Push тегов пропущен"
   fi
@@ -305,7 +309,7 @@ if [[ "$release_enabled" == "yes" ]]; then
   echo
   if command -v gh >/dev/null 2>&1; then
     info "Найден gh (GitHub CLI). Можно создать Release автоматически."
-    if ask_yes_no "Создать GitHub Release ${tag} и прикрепить .deb (если найден)?"; then
+    if ask_yes_no "Создать GitHub Release ${tag}? (y = создаст релиз и приложит .deb, Enter = пропустит)"; then
       # Формируем базовые notes (кратко, без фантазий)
       notes="$(printf '%s\n\n- Debian package build\n- See debian/changelog for details' "${pkg_name} ${tag}")"
 
