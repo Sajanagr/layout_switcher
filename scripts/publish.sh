@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------
 # Файл: scripts/publish.sh
-# Назначение: Публикация релиза KBFix в GitHub (тег + сборка .deb + push + release).
+# Назначение: Подготовка релиза KBFix (проверки + тег + push; GitHub Release создаётся CI).
+# CI: .github/workflows/release.yml — создаёт GitHub Release по push тега vX.Y.Z и прикрепляет .deb.
 #
 # Скрипт рассчитан на открытый open-source поток:
 #  - работает через git-теги вида v0.1.0
 #  - собирает .deb через dpkg-buildpackage
 #  - пушит ветку и теги
-#  - опционально создает GitHub Release через gh и прикрепляет .deb
+#  - создаёт git-тег и пушит его (GitHub Release автоматически создаётся GitHub Actions)
 #
 # Важно:
 #  - НИЧЕГО не делает "молча": на каждом важном шаге просит подтверждение.
@@ -168,6 +169,7 @@ fi
 # Версия релиза
 # ----------------------------
 release_enabled="no"
+tag_pushed="no"
 if ask_yes_no "Выпускать релиз (тег + GitHub Release)? (y = спросит версию и создаст релиз, Enter = без релиза)"; then
   release_enabled="yes"
 fi
@@ -297,37 +299,19 @@ if [[ "$release_enabled" == "yes" ]]; then
   if ask_yes_no "Отправить тег релиза ${tag} в GitHub? (y = отправит ТОЛЬКО этот тег, Enter = пропустит)"; then
     git push origin "${tag}"
     info "Тег релиза запушен: ${tag}"
+    tag_pushed="yes"
   else
     warn "Push тегов пропущен"
   fi
 fi
 
-# ----------------------------
-# Создание GitHub Release (опционально)
-# ----------------------------
 if [[ "$release_enabled" == "yes" ]]; then
-  echo
-  if command -v gh >/dev/null 2>&1; then
-    info "Найден gh (GitHub CLI). Можно создать Release автоматически."
-    if ask_yes_no "Создать GitHub Release ${tag}? (y = создаст релиз и приложит .deb, Enter = пропустит)"; then
-      # Формируем базовые notes (кратко, без фантазий)
-      notes="$(printf '%s\n\n- Debian package build\n- See debian/changelog for details' "${pkg_name} ${tag}")"
-
-      if [[ -n "${deb_file:-}" && -f "${deb_file}" ]]; then
-        gh release create "${tag}" "${deb_file}" --title "${pkg_name} ${tag}" --notes "${notes}"
-        info "Release создан и .deb прикреплен"
-      else
-        gh release create "${tag}" --title "${pkg_name} ${tag}" --notes "${notes}"
-        warn "Release создан без .deb (файл не найден)"
-      fi
-    else
-      warn "Создание Release пропущено"
-    fi
+  if [[ "$tag_pushed" == "yes" ]]; then
+    info "GitHub Release будет создан автоматически через GitHub Actions."
+    info "Смотри: GitHub → Actions → workflow \"Release (.deb)\"."
+    info "Релиз появится в разделе Releases и будет содержать .deb."
   else
-    warn "gh не найден. Release можно сделать вручную через веб-интерфейс GitHub."
-    if [[ -n "${deb_file:-}" ]]; then
-      warn "Файл для загрузки: ${deb_file}"
-    fi
+    warn "Тег релиза не отправлен — CI релиз не запустится."
   fi
 fi
 
