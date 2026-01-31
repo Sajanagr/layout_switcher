@@ -20,8 +20,11 @@ jobs:
       - name: Build deb
         run: dpkg-buildpackage -us -uc
 
+      - name: Collect deb
+        run: cp ../kbfix_*.deb .
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: kbfix-deb
-          path: ../kbfix_*.deb
+          path: kbfix_*.deb
