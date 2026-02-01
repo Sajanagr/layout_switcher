@@ -1,3 +1,9 @@
+kbfix (0.1.1-1) UNRELEASED; urgency=medium
+
+  * Release v0.1.1
+
+ -- Ivan Koleshnya <sajanagr@pc>  Sun, 01 Feb 2026 15:37:43 +0300
+
 kbfix (0.1.0-1) unstable; urgency=medium
 
   * Initial Debian package.
