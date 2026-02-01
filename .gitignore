@@ -1,14 +1,62 @@
-*.bak
+# ==============================================================================
+# KBFix (.gitignore)
+# Python + VS Code + Debian packaging
+# ==============================================================================
+
+# --- OS / editor junk ---
+*~
 *~*
-venv
-.envrc
-__pycache__
-kbfix/__pycache__
+*.bak
+.DS_Store
+Thumbs.db
+
+# --- Python cache / bytecode ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# --- Virtual environments (local dev only) ---
+venv/
+.venv/
+.dev-venv/
+ENV/
+env/
+.ENV/
+.conda/
+
+# --- Python tooling caches ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.cache/
+pip-wheel-metadata/
+
+# --- Build / dist artifacts ---
+build/
+dist/
+*.egg-info/
+.eggs/
+wheels/
+*.whl
+
+# --- IDE / project files ---
+.vscode/
+.idea/
+*.iml
 .project
 .pydevproject
 
-venv/
-__pycache__/
+# If you keep pyrightconfig.json as local-only (recommended)
+pyrightconfig.json
+
+# --- Logs / runtime ---
+*.log
+
 # --- Debian packaging build artifacts (do not commit) ---
 /debian/.debhelper/
 /debian/kbfix/
@@ -17,3 +65,18 @@ __pycache__/
 /debian/*.substvars
 /debian/*.log
 /debian/*.debhelper
+/debian/tmp/
+/debian/*.deb
+/debian/*.buildinfo
+/debian/*.changes
+/debian/*.dsc
+/debian/*.tar.*
+/debian/.tmp*
+
+# --- Local release artifacts / temporary dirs ---
+DIC/
+*.deb
+
+# --- Optional: local env files ---
+.env
+.envrc

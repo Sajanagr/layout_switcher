@@ -197,23 +197,47 @@ fi
 echo
 
 # ----------------------------
-# Проверка changelog
+# Обновление/проверка changelog
 # ----------------------------
 # В debian/changelog должна быть первая строка вида:
 # kbfix (0.1.0-1) unstable; urgency=medium
-#
-# Скрипт не редактирует автоматически, только проверяет и подсказывает.
 if [[ "$release_enabled" == "yes" ]]; then
-  if [[ -f "debian/changelog" ]]; then
-    head_line="$(head -n 1 debian/changelog || true)"
-    if [[ "$head_line" != "${pkg_name} (${deb_ver})"* ]]; then
-      warn "debian/changelog не начинается с ожидаемой версии: ${pkg_name} (${deb_ver})"
-      warn "Сейчас: $head_line"
-      err "Обнови debian/changelog под ${deb_ver}, затем запусти publish.sh снова."
+  [[ -f "debian/changelog" ]] || err "Не найден debian/changelog"
+
+  head_line="$(head -n 1 debian/changelog || true)"
+
+  if [[ "$head_line" != "${pkg_name} (${deb_ver})"* ]]; then
+    warn "debian/changelog сейчас: $head_line"
+    warn "Ожидаем: ${pkg_name} (${deb_ver}) ..."
+
+    if ask_yes_no "Авто-обновить debian/changelog до версии ${deb_ver}?"; then
+      if command -v dch >/dev/null 2>&1; then
+        # devscripts: корректно добавляет новую верхнюю запись
+        dch --newversion "${deb_ver}" "Release ${tag}"
+        info "debian/changelog обновлён через dch"
+      else
+        err "Не найден dch (devscripts). Установи: sudo apt install devscripts"
+      fi
+
+      # покажем верхушку для контроля
+      echo
+      info "Первые 5 строк debian/changelog:"
+      head -n 5 debian/changelog || true
+      echo
+
+      # добавляем changelog в коммит
+      if ask_yes_no "Закоммитить обновление debian/changelog?"; then
+        git add debian/changelog
+        git commit -m "chore: bump debian/changelog to ${deb_ver}"
+        info "Коммит с changelog создан"
+      else
+        err "Остановлено: changelog изменён, но не закоммичен. Закоммить и запусти publish.sh снова."
+      fi
+    else
+      err "Обновление changelog отменено. Обнови debian/changelog вручную и запусти publish.sh снова."
     fi
-    info "debian/changelog соответствует версии ${deb_ver}"
   else
-    err "Не найден debian/changelog"
+    info "debian/changelog соответствует версии ${deb_ver}"
   fi
 fi
 
