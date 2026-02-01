@@ -20,6 +20,7 @@ import logging
 import re
 # threading нужен для потокобезопасного управления паузой и жизненным циклом слушателя
 import threading
+from typing import Any
 
 # Логгер нужен для управляемого вывода в консоль и диагностики проблем
 logger = logging.getLogger("layout_switcher")
@@ -75,13 +76,13 @@ ru_to_en = {
 # Посимвольная конвертация: она проста и предсказуема,
 # и ровно соответствует "ввёл в другой раскладке"
 
-def switch_layout(text):
+def switch_layout(text: str) -> str:
     """
     Конвертирует текст между русской и английской раскладками.
     Возвращает преобразованный текст.
     """
 
-    result = []
+    result: list[str] = []
     for char in text:
         if char in en_to_ru:
             result.append(en_to_ru[char])
@@ -96,7 +97,7 @@ def switch_layout(text):
 def fix_double_caps(text: str) -> tuple[str, int]:
     pattern = re.compile(r"\b([A-ZА-ЯЁ]{2,})([a-zа-яё]+)([A-Za-zА-Яа-яЁё]*)\b")
 
-    def _fix(match: re.Match) -> str:
+    def _fix(match: re.Match[str]) -> str:
         prefix = match.group(1)
         fixed_prefix = prefix[0] + prefix[1:].lower()
         return fixed_prefix + match.group(2) + match.group(3)
@@ -107,7 +108,7 @@ def fix_double_caps(text: str) -> tuple[str, int]:
 # Определяем направление конвертации по количеству совпадений с таблицами,
 # чтобы выполнять замену только при высокой вероятности ошибочной раскладки.
 
-def detect_conversion_direction(text):
+def detect_conversion_direction(text: str) -> tuple[str | None, int, int]:
     """Определяет направление конвертации и возвращает (direction, en_hits, ru_hits)"""
     en_hits = 0
     ru_hits = 0
@@ -136,7 +137,7 @@ def detect_conversion_direction(text):
 # 4) вставляем обратно
 # 5) восстанавливаем буфер
 
-def handle_key_press():
+def handle_key_press() -> None:
     """Обрабатывает нажатие горячей клавиши"""
     # Сохраняем текущее содержимое буфера обмена, чтобы не потерять данные пользователя.
     # Важно: любые ошибки чтения буфера не должны уронить скрипт.
@@ -166,9 +167,9 @@ def handle_key_press():
 
         # Копируем выделенный текст (Ctrl+C)
         # Это единственный способ получить текущее выделение в активном приложении
-        controller.press(keyboard.Key.ctrl)
+        controller.press(keyboard.Key.ctrl_l)  # type: ignore[arg-type]
         controller.tap('c')
-        controller.release(keyboard.Key.ctrl)
+        controller.release(keyboard.Key.ctrl_l)  # type: ignore[arg-type]
 
         # Небольшая задержка нужна, чтобы буфер обмена успел обновиться
         time.sleep(0.15)
@@ -182,7 +183,7 @@ def handle_key_press():
             logger.exception("Не удалось прочитать буфер обмена после Ctrl+C")
             copied = ""
 
-        if not isinstance(copied, str) or copied.strip() == "" or copied == marker:
+        if not isinstance(copied, str) or copied.strip() == "" or copied == marker:  # type: ignore[reportUnnecessaryIsInstance]
             # Важно: не вставляем и не переключаем раскладку, просто выходим.
             logger.info("Выделение не обнаружено или копирование не сработало")
             return
@@ -224,9 +225,9 @@ def handle_key_press():
             # Если не удалось записать в буфер, дальше продолжать нельзя
             return
         time.sleep(0.15)
-        controller.press(keyboard.Key.ctrl)
+        controller.press(keyboard.Key.ctrl_l)  # type: ignore[arg-type]
         controller.tap('v')
-        controller.release(keyboard.Key.ctrl)
+        controller.release(keyboard.Key.ctrl_l)  # type: ignore[arg-type]
 
         # Задержка перед восстановлением буфера важна, чтобы вставка успела завершиться
         time.sleep(0.15)
@@ -297,7 +298,7 @@ class HotkeyListener:
         """Возвращает True, если обработка хоткея приостановлена"""
         return self._paused.is_set()
 
-    def _on_press(self, key):
+    def _on_press(self, key: Any) -> None:
         # Отслеживаем только левый Ctrl, чтобы хоткей был строго по требованию
         if key == keyboard.Key.ctrl_l:
             self._ctrl_pressed = True
@@ -325,7 +326,7 @@ class HotkeyListener:
                     return
                 handle_key_press()
 
-    def _on_release(self, key):
+    def _on_release(self, key: Any) -> None:
         # Сбрасываем состояние Ctrl_L, чтобы избежать ложных срабатываний
         if key == keyboard.Key.ctrl_l:
             self._ctrl_pressed = False

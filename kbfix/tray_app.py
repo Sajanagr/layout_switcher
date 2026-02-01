@@ -109,10 +109,7 @@ class TrayApp:
         """Переключает паузу и обновляет отображение"""
         new_state = not self._listener.is_paused()
         # Меняем флаг паузы напрямую, чтобы не спамить логами при каждом клике
-        if new_state:
-            self._listener._paused.set()
-        else:
-            self._listener._paused.clear()
+        self._listener.set_paused(new_state)
         self._update_indicator_state()
 
     def _on_show_log(self, _):
