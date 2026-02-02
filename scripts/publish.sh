@@ -35,6 +35,133 @@ ask_yes_no() {
   [[ "${ans:-}" =~ ^([Yy]|[Yy][Ee][Ss])$ ]]
 }
 
+ask_yes_no_default_yes() {
+  # $1 = вопрос
+  local q="$1"
+  read -r -p "${q} [Y/n]: " ans
+  ans="${ans//[[:space:]]/}"
+  [[ -z "${ans:-}" || "${ans}" =~ ^([Yy]|[Yy][Ee][Ss])$ ]]
+}
+
+get_latest_release_tag() {
+  git tag --list "v[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | head -n 1
+}
+
+bump_semver() {
+  local ver="$1"
+  local bump="$2"
+  local major minor patch
+  IFS='.' read -r major minor patch <<< "$ver"
+  major="${major:-0}"
+  minor="${minor:-0}"
+  patch="${patch:-0}"
+  case "$bump" in
+    patch)
+      patch=$((patch + 1))
+      ;;
+    minor)
+      minor=$((minor + 1))
+      patch=0
+      ;;
+    major)
+      major=$((major + 1))
+      minor=0
+      patch=0
+      ;;
+    *)
+      err "Неизвестный тип bump: ${bump}"
+      ;;
+  esac
+  printf "%s.%s.%s" "$major" "$minor" "$patch"
+}
+
+next_prerelease_num() {
+  local base_ver="$1"
+  local pre="$2"
+  local max=0
+  local t n
+  while read -r t; do
+    n="${t#v${base_ver}-${pre}.}"
+    if [[ "$n" =~ ^[0-9]+$ ]]; then
+      if (( n > max )); then
+        max=$n
+      fi
+    fi
+  done < <(git tag --list "v${base_ver}-${pre}.*")
+  printf "%d" $((max + 1))
+}
+
+derive_deb_version() {
+  local ver="$1"
+  if [[ "$ver" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-((rc|beta|alpha)\.[0-9]+)$ ]]; then
+    local base="${BASH_REMATCH[1]}"
+    local pre="${BASH_REMATCH[2]}"
+    local pre_type="${pre%.*}"
+    local pre_num="${pre#*.}"
+    printf "%s~%s%s-1" "$base" "$pre_type" "$pre_num"
+  else
+    printf "%s-1" "$ver"
+  fi
+}
+
+ensure_changelog_section() {
+  local ver="$1"
+  local file="CHANGELOG.md"
+  local section tmp insert_line insert_mode
+  [[ -f "$file" ]] || err "Не найден CHANGELOG.md"
+
+  if grep -qE "^## \\[${ver}\\]" "$file"; then
+    info "CHANGELOG.md содержит секцию: ## [${ver}]"
+    return 0
+  fi
+
+  section="$(printf "## [%s]\n- ...\n\n" "$ver")"
+  tmp="$(mktemp)"
+
+  insert_mode="$(awk '
+    BEGIN {fs_line=0; unreleased=0; end_line=0; line=0;}
+    {
+      line++
+      if (fs_line==0 && $0 ~ /^## \[/) {
+        fs_line=line
+        if ($0 ~ /^## \[Unreleased\]/) unreleased=1
+      } else if (fs_line>0 && unreleased && end_line==0 && $0 ~ /^## \[/) {
+        end_line=line-1
+      }
+    }
+    END {
+      if (fs_line==0) {
+        print "none"
+      } else if (unreleased) {
+        if (end_line==0) end_line=line
+        print "after:" end_line
+      } else {
+        print "before:" fs_line
+      }
+    }
+  ' "$file")"
+
+  if [[ "$insert_mode" == "none" ]]; then
+    cat "$file" > "$tmp"
+    printf "%s" "$section" >> "$tmp"
+  elif [[ "$insert_mode" == before:* ]]; then
+    insert_line="${insert_mode#before:}"
+    awk -v insert_line="$insert_line" -v section="$section" '
+      NR==insert_line {printf "%s", section}
+      {print}
+    ' "$file" > "$tmp"
+  else
+    insert_line="${insert_mode#after:}"
+    awk -v insert_line="$insert_line" -v section="$section" '
+      {print}
+      NR==insert_line {printf "%s", section}
+    ' "$file" > "$tmp"
+  fi
+
+  mv "$tmp" "$file"
+  info "Добавлена секция в CHANGELOG.md: ## [${ver}]"
+}
+
 # ----------------------------
 # Переход в корень репозитория
 # ----------------------------
@@ -85,7 +212,7 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
     if [[ -z "${choice:-}" ]]; then
       err "Публикация отменена пользователем."
     elif [[ "$choice" == "1" ]]; then
-      git add -u
+      git add -A
       if git diff --cached --quiet; then
         warn "Нет staged изменений. Возможны только untracked файлы. Добавь их вручную или выбери другую опцию."
         continue
@@ -99,7 +226,7 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
         warn "Сообщение коммита не задано."
         continue
       fi
-      git add -u
+      git add -A
       if git diff --cached --quiet; then
         warn "Нет staged изменений. Возможны только untracked файлы. Добавь их вручную или выбери другую опцию."
         continue
@@ -169,18 +296,71 @@ fi
 # Версия релиза
 # ----------------------------
 release_enabled="no"
+release_kind="release"
 tag_pushed="no"
-if ask_yes_no "Выпускать релиз (тег + GitHub Release)? (y = спросит версию и создаст релиз, Enter = без релиза)"; then
+if ask_yes_no "Выпускать релиз (тег + GitHub Release)? (y = выбрать тип/версию, Enter = без релиза)"; then
   release_enabled="yes"
 fi
 
 if [[ "$release_enabled" == "yes" ]]; then
   echo
-  read -r -p "Введите версию релиза (например 0.1.0): " ver
-  [[ -n "${ver:-}" ]] || err "Версия не задана."
-  ver="${ver#v}"
+  echo "Выбери тип релиза:"
+  echo " [1] Релиз (X.Y.Z)"
+  echo " [2] Пререлиз (X.Y.Z-rc.N / beta.N / alpha.N)"
+  echo -n "Выбор [1]: "
+  read -r release_choice
+  if [[ -z "${release_choice:-}" || "$release_choice" == "1" ]]; then
+    release_kind="release"
+  elif [[ "$release_choice" == "2" ]]; then
+    release_kind="prerelease"
+  else
+    err "Неизвестный выбор типа релиза."
+  fi
+
+  last_tag="$(get_latest_release_tag)"
+  if [[ -z "${last_tag:-}" ]]; then
+    last_ver="0.0.0"
+    warn "Релизные теги не найдены. Базовая версия: ${last_ver}"
+  else
+    last_ver="${last_tag#v}"
+    info "Последний релизный тег: ${last_tag}"
+  fi
+
+  if [[ "$release_kind" == "release" ]]; then
+    read -r -p "Тип bump (patch/minor/major) [patch]: " bump
+    bump="${bump:-patch}"
+    auto_ver="$(bump_semver "$last_ver" "$bump")"
+    read -r -p "Версия релиза [${auto_ver}]: " ver_input
+    ver="${ver_input:-$auto_ver}"
+    ver="${ver#v}"
+    if [[ ! "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      err "Некорректная версия релиза: ${ver}"
+    fi
+  else
+    read -r -p "Тип bump базовой версии (patch/minor/major) [patch]: " bump
+    bump="${bump:-patch}"
+    read -r -p "Тип пререлиза (rc/beta/alpha) [rc]: " pre_type
+    pre_type="${pre_type:-rc}"
+    case "$pre_type" in
+      rc|beta|alpha)
+        ;;
+      *)
+        err "Неизвестный тип пререлиза: ${pre_type}"
+        ;;
+    esac
+    base_ver="$(bump_semver "$last_ver" "$bump")"
+    pre_num="$(next_prerelease_num "$base_ver" "$pre_type")"
+    auto_ver="${base_ver}-${pre_type}.${pre_num}"
+    read -r -p "Версия пререлиза [${auto_ver}]: " ver_input
+    ver="${ver_input:-$auto_ver}"
+    ver="${ver#v}"
+    if [[ ! "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+-(rc|beta|alpha)\.[0-9]+$ ]]; then
+      err "Некорректная версия пререлиза: ${ver}"
+    fi
+  fi
+
   tag="v${ver}"
-  deb_ver="${ver}-1"  # Debian revision по умолчанию
+  deb_ver="$(derive_deb_version "$ver")"
 else
   ver=""
   tag=""
@@ -189,7 +369,11 @@ fi
 
 echo
 if [[ "$release_enabled" == "yes" ]]; then
-  info "Релиз: ${tag}"
+  if [[ "$release_kind" == "prerelease" ]]; then
+    info "Пререлиз: ${tag}"
+  else
+    info "Релиз: ${tag}"
+  fi
   info "Debian version: ${deb_ver}"
 else
   warn "Режим без релиза: теги и GitHub Release пропущены."
@@ -197,47 +381,67 @@ fi
 echo
 
 # ----------------------------
-# Обновление/проверка changelog
+# Обновление/проверка CHANGELOG.md и debian/changelog
 # ----------------------------
 # В debian/changelog должна быть первая строка вида:
 # kbfix (0.1.0-1) unstable; urgency=medium
 if [[ "$release_enabled" == "yes" ]]; then
+  ensure_changelog_section "$ver"
+
   [[ -f "debian/changelog" ]] || err "Не найден debian/changelog"
+  if ! command -v dch >/dev/null 2>&1; then
+    err "Не найден dch (devscripts). Установи: sudo apt install devscripts"
+  fi
 
   head_line="$(head -n 1 debian/changelog || true)"
 
   if [[ "$head_line" != "${pkg_name} (${deb_ver})"* ]]; then
     warn "debian/changelog сейчас: $head_line"
     warn "Ожидаем: ${pkg_name} (${deb_ver}) ..."
-
-    if ask_yes_no "Авто-обновить debian/changelog до версии ${deb_ver}?"; then
-      if command -v dch >/dev/null 2>&1; then
-        # devscripts: корректно добавляет новую верхнюю запись
-        dch --newversion "${deb_ver}" "Release ${tag}"
-        info "debian/changelog обновлён через dch"
-      else
-        err "Не найден dch (devscripts). Установи: sudo apt install devscripts"
-      fi
-
-      # покажем верхушку для контроля
-      echo
-      info "Первые 5 строк debian/changelog:"
-      head -n 5 debian/changelog || true
-      echo
-
-      # добавляем changelog в коммит
-      if ask_yes_no "Закоммитить обновление debian/changelog?"; then
-        git add debian/changelog
-        git commit -m "chore: bump debian/changelog to ${deb_ver}"
-        info "Коммит с changelog создан"
-      else
-        err "Остановлено: changelog изменён, но не закоммичен. Закоммить и запусти publish.sh снова."
-      fi
-    else
-      err "Обновление changelog отменено. Обнови debian/changelog вручную и запусти publish.sh снова."
-    fi
+    # devscripts: корректно добавляет новую верхнюю запись
+    dch --newversion "${deb_ver}" "Release ${tag}"
+    info "debian/changelog обновлён через dch"
   else
     info "debian/changelog соответствует версии ${deb_ver}"
+  fi
+
+  # покажем верхушку для контроля
+  echo
+  info "Первые 5 строк debian/changelog:"
+  head -n 5 debian/changelog || true
+  echo
+
+  wf_path=".github/workflows/release.yml"
+  [[ -f "$wf_path" ]] || err "Не найден файл релизного workflow: ${wf_path}"
+  if ! git ls-files --error-unmatch "$wf_path" >/dev/null 2>&1; then
+    warn "Файл релизного workflow не отслеживается git — добавляю в коммит: ${wf_path}"
+  fi
+
+  git add -A -- "$wf_path" "CHANGELOG.md" "debian/changelog" "scripts/publish.sh"
+
+  if git ls-files --others --exclude-standard -- "kbfix/dictionaries" | grep -q .; then
+    if ask_yes_no_default_yes "Обнаружены untracked kbfix/dictionaries/. Добавить в коммит?"; then
+      git add -A -- "kbfix/dictionaries"
+      info "kbfix/dictionaries добавлены в коммит"
+    else
+      warn "kbfix/dictionaries останутся untracked"
+    fi
+  fi
+
+  if git ls-files --others --exclude-standard -- "structure.md" | grep -q .; then
+    if ask_yes_no_default_yes "Обнаружен untracked structure.md. Добавить в коммит?"; then
+      git add -A -- "structure.md"
+      info "structure.md добавлен в коммит"
+    else
+      warn "structure.md останется untracked"
+    fi
+  fi
+
+  if ! git diff --cached --quiet; then
+    git commit -m "chore: prepare release ${tag}"
+    info "Коммит релиза создан"
+  else
+    warn "Нет изменений для коммита релиза"
   fi
 fi
 
@@ -290,42 +494,41 @@ fi
 # ----------------------------
 if [[ "$release_enabled" == "yes" ]]; then
   echo
-  # Проверяем, что тег не существует
+  wf_path=".github/workflows/release.yml"
+  [[ -f "$wf_path" ]] || err "Не найден файл релизного workflow: ${wf_path}"
+  git ls-files --error-unmatch "$wf_path" >/dev/null 2>&1 || err "Файл релизного workflow не отслеживается git: ${wf_path}"
+  git show "HEAD:${wf_path}" >/dev/null 2>&1 || err "Файл релизного workflow отсутствует в HEAD: ${wf_path}"
+  info "Release workflow присутствует и будет в теге: ${wf_path}"
+
+  if ! grep -qE "^## \\[${ver}\\]" CHANGELOG.md; then
+    err "В CHANGELOG.md нет секции '## [${ver}]'. Добавь её, иначе CI релиза упадёт."
+  fi
+  info "CHANGELOG.md содержит секцию: ## [${ver}]"
+
   if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
-    warn "Тег ${tag} уже существует. Создание тега будет пропущено."
-    tag_already_exists="yes"
-  else
-    tag_already_exists="no"
+    err "Тег ${tag} уже существует. Увеличь версию и запусти publish.sh снова."
   fi
 
-  if [[ "$tag_already_exists" == "no" ]]; then
-    if ask_yes_no "Создать annotated tag ${tag} на текущем коммите?"; then
-      git tag -a "${tag}" -m "Release ${tag}"
-      info "Тег создан: ${tag}"
-    else
-      warn "Тег не создан"
-    fi
-  fi
+  git tag -a "${tag}" -m "Release ${tag}"
+  info "Тег создан: ${tag}"
 fi
 
 # ----------------------------
 # Push ветки и тегов
 # ----------------------------
 echo
-if ask_yes_no "Отправить ветку ${branch} в GitHub? (y = отправит коммиты, Enter = пропустит)"; then
+if [[ "$release_enabled" == "yes" ]]; then
   git push origin "${branch}"
   info "Ветка запушена: origin/${branch}"
+  git push origin "${tag}"
+  info "Тег релиза запушен: ${tag}"
+  tag_pushed="yes"
 else
-  warn "Push ветки пропущен"
-fi
-
-if [[ "$release_enabled" == "yes" ]]; then
-  if ask_yes_no "Отправить тег релиза ${tag} в GitHub? (y = отправит ТОЛЬКО этот тег, Enter = пропустит)"; then
-    git push origin "${tag}"
-    info "Тег релиза запушен: ${tag}"
-    tag_pushed="yes"
+  if ask_yes_no "Отправить ветку ${branch} в GitHub? (y = отправит коммиты, Enter = пропустит)"; then
+    git push origin "${branch}"
+    info "Ветка запушена: origin/${branch}"
   else
-    warn "Push тегов пропущен"
+    warn "Push ветки пропущен"
   fi
 fi
 

@@ -1,0 +1,63 @@
+name: Release (.deb)
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            devscripts debhelper dh-python python3-all dpkg-dev build-essential \
+            python3-venv python3-pip fakeroot
+
+      - name: Build deb
+        run: |
+          set -euxo pipefail
+          dpkg-buildpackage -b -uc -us
+
+      - name: Collect artifacts into workspace
+        run: |
+          set -euxo pipefail
+          mkdir -p dist
+          # dpkg-buildpackage кладёт .deb на уровень выше репо
+          cp -v ../kbfix_*.deb dist/
+
+      - name: Prepare release notes from CHANGELOG.md
+        shell: bash
+        run: |
+          set -euxo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VER="${TAG#v}"
+          awk -v ver="$VER" '
+            $0 ~ "^## \\[" ver "\\]" {print; found=1; next}
+            found && $0 ~ /^## \[/ {exit}
+            found {print}
+          ' CHANGELOG.md > dist/RELEASE_NOTES.md
+          if [[ ! -s dist/RELEASE_NOTES.md ]]; then
+            echo "Release ${TAG}" > dist/RELEASE_NOTES.md
+          fi
+
+      - name: Create GitHub Release and upload .deb
+        uses: softprops/action-gh-release@v2
+        if: github.ref_type == 'tag'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: |
+            dist/kbfix_*.deb
+          body_path: dist/RELEASE_NOTES.md
+          prerelease: ${{ contains(github.ref_name, '-rc.') || contains(github.ref_name, '-beta.') || contains(github.ref_name, '-alpha.') }}
