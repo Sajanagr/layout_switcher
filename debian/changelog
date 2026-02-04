@@ -1,11 +1,12 @@
-kbfix (0.1.4-1) UNRELEASED; urgency=medium
+kbfix (0.1.5-1) UNRELEASED; urgency=medium
 
   * Release v0.1.1
   * Release v0.1.3
   * Release v0.1.4-beta.1
   * Release v0.1.4
+  * Release v0.1.5
 
- -- Ivan Koleshnya <sajanagr@pc>  Wed, 04 Feb 2026 04:32:10 +0300
+ -- Ivan Koleshnya <sajanagr@pc>  Wed, 04 Feb 2026 11:37:57 +0300
 
 kbfix (0.1.0-1) unstable; urgency=medium
 
