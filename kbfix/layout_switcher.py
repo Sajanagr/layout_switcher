@@ -261,6 +261,9 @@ class HotkeyListener:
         self._last_trigger_time = 0.0
         # Слушатель создаём при старте, чтобы корректно управлять жизненным циклом
         self._listener = None
+        # Служебные объекты для watchdog-потока
+        self._watchdog_stop = threading.Event()
+        self._watchdog_thread: threading.Thread | None = None
 
     def start(self):
         """Запускает слушатель хоткея в фоне"""
@@ -272,9 +275,19 @@ class HotkeyListener:
             on_release=self._on_release
         )
         self._listener.start()
+        # Запускаем watchdog, который проверяет живость listener
+        self._watchdog_stop.clear()
+        if self._watchdog_thread is None or not self._watchdog_thread.is_alive():
+            self._watchdog_thread = threading.Thread(
+                target=self._watchdog_loop,
+                name="HotkeyListenerWatchdog",
+                daemon=True
+            )
+            self._watchdog_thread.start()
 
     def stop(self):
         """Останавливает слушатель хоткея"""
+        self._watchdog_stop.set()
         if self._listener is None:
             return
         self._listener.stop()
@@ -324,7 +337,10 @@ class HotkeyListener:
                 if self._paused.is_set():
                     logger.info("Пауза включена — конвертация пропущена")
                     return
-                handle_key_press()
+                try:
+                    handle_key_press()
+                except Exception:
+                    logger.exception("Ошибка при обработке горячей клавиши")
 
     def _on_release(self, key: Any) -> None:
         # Сбрасываем состояние Ctrl_L, чтобы избежать ложных срабатываний
@@ -335,6 +351,41 @@ class HotkeyListener:
         if key == keyboard.Key.cmd_l:
             self._super_pressed = False
             return
+
+    def _watchdog_loop(self) -> None:
+        """Периодически проверяет listener и перезапускает его при необходимости"""
+        while not self._watchdog_stop.is_set():
+            time.sleep(5)
+            if self._watchdog_stop.is_set():
+                return
+            if self._listener is None:
+                continue
+            try:
+                alive = self._listener.is_alive()
+            except Exception:
+                logger.exception("Ошибка проверки listener.is_alive()")
+                alive = False
+
+            if not alive:
+                logger.warning("Listener перестал быть alive — перезапускаю")
+                self._restart_listener()
+
+    def _restart_listener(self) -> None:
+        """Безопасно перезапускает listener"""
+        if self._listener is not None:
+            try:
+                self._listener.stop()
+            except Exception:
+                logger.exception("Не удалось остановить listener при перезапуске")
+        self._listener = None
+        try:
+            self._listener = keyboard.Listener(
+                on_press=self._on_press,
+                on_release=self._on_release
+            )
+            self._listener.start()
+        except Exception:
+            logger.exception("Не удалось перезапустить listener")
 
 # =============================================
 # ЗАПУСК СКРИПТА
