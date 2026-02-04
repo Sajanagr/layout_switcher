@@ -40,8 +40,9 @@ print_sync_status() {
   echo "Upstream: ${upstream}"
   local counts
   counts="$(git rev-list --left-right --count "${upstream}...HEAD")"
-  SYNC_BEHIND="${counts%% *}"
-  SYNC_AHEAD="${counts##* }"
+  read -r SYNC_BEHIND SYNC_AHEAD <<< "$counts"
+  SYNC_BEHIND="${SYNC_BEHIND:-0}"
+  SYNC_AHEAD="${SYNC_AHEAD:-0}"
   echo "Статус: behind=${SYNC_BEHIND}, ahead=${SYNC_AHEAD}"
   return 0
 }
@@ -137,7 +138,7 @@ ensure_changelog_section() {
     return 0
   fi
 
-  section="$(printf "## [%s]\n- ...\n\n" "$ver")"
+  section="$(printf "## [%s]\n### Added\n- ...\n### Changed\n- ...\n### Fixed\n- ...\n\n" "$ver")"
   tmp="$(mktemp)"
 
   insert_mode="$(awk '
@@ -189,7 +190,7 @@ generate_release_notes() {
   awk -v ver="$ver" '
     BEGIN {in_sec=0; sec=""; added=""; changed=""; fixed=""; found=0;}
     $0 ~ "^## \\[" ver "\\]" {in_sec=1; found=1; next}
-    in_sec && /^## \\[/ { exit }
+    in_sec && /^## \[/ { exit }
     in_sec {
       if ($0 ~ /^### Added/) { sec="added"; next }
       if ($0 ~ /^### Changed/) { sec="changed"; next }
@@ -208,6 +209,47 @@ generate_release_notes() {
       if (fixed!="") { print ""; print "### Fixed"; printf "%s", fixed }
     }
   ' "$file"
+}
+
+validate_release_notes_or_hint() {
+  # Проверяем release notes и подсказываем шаблон
+  local status=0
+  if ! awk -v ver="$ver" '
+    BEGIN {in_sec=0; sec=""; found=0; has_item=0;}
+    $0 ~ "^## \\[" ver "\\]" {in_sec=1; found=1; next}
+    in_sec && /^## \[/ { exit }
+    in_sec {
+      if ($0 ~ /^### /) {
+        if ($0 ~ /^### (Added|Changed|Fixed)/) { sec="ok" } else { sec="" }
+        next
+      }
+      if ($0 ~ /^- /) {
+        if ($0 ~ /^- \\.\\.\\./) { next }
+        if (sec=="ok") { has_item=1 }
+      }
+    }
+    END {
+      if (!found) { exit 2 }
+      if (!has_item) { exit 3 }
+    }
+  ' CHANGELOG.md; then
+    status=$?
+    if [[ "$status" -eq 2 ]]; then
+      warn "Секция CHANGELOG.md для версии ${ver} не найдена."
+    else
+      warn "Release notes для версии ${ver} пустые или содержат только placeholder."
+    fi
+    echo
+    echo "Вставь и заполни в CHANGELOG.md:"
+    echo "## [${ver}]"
+    echo "### Added"
+    echo "- ..."
+    echo "### Changed"
+    echo "- ..."
+    echo "### Fixed"
+    echo "- ..."
+    err "CHANGELOG.md содержит placeholder, заполни release notes"
+  fi
 }
 
 # ----------------------------
@@ -490,6 +532,7 @@ prepare_release_commit() {
     info "Первые 5 строк debian/changelog:"
     head -n 5 debian/changelog || true
     echo
+    validate_release_notes_or_hint
 
     wf_path=".github/workflows/release.yml"
     [[ -f "$wf_path" ]] || err "Не найден файл релизного workflow: ${wf_path}"
@@ -600,12 +643,20 @@ create_tag() {
       err "В CHANGELOG.md нет секции '## [${ver}]'. Добавь её, иначе CI релиза упадёт."
     fi
     info "CHANGELOG.md содержит секцию: ## [${ver}]"
+    validate_release_notes_or_hint
 
     local release_notes_tmp
     release_notes_tmp="$(mktemp)"
     trap 'rm -f "$release_notes_tmp"' RETURN
     if ! generate_release_notes > "$release_notes_tmp"; then
-      err "Release notes пустые или не найдены для версии ${ver}."
+      local notes_status=$?
+      if [[ "$notes_status" -eq 2 ]]; then
+        err "Секция CHANGELOG.md для версии ${ver} не найдена."
+      elif [[ "$notes_status" -eq 3 ]]; then
+        err "В CHANGELOG.md нет пунктов Added/Changed/Fixed для версии ${ver}."
+      else
+        err "Не удалось сгенерировать release notes."
+      fi
     fi
     echo
     info "Preview release notes:"
@@ -774,11 +825,12 @@ run_dry_run() {
   select_release_version
   release_preview_and_confirm
 
+  validate_release_notes_or_hint
   local release_notes_tmp
   release_notes_tmp="$(mktemp)"
   if ! generate_release_notes > "$release_notes_tmp"; then
     rm -f "$release_notes_tmp"
-    err "Release notes пустые или не найдены для версии ${ver}."
+    err "Не удалось сгенерировать release notes."
   fi
   echo
   info "Preview release notes:"
