@@ -582,8 +582,8 @@ create_tag() {
     if ! awk -v ver="$ver" '
       BEGIN {in_sec=0}
       $0 ~ "^## \\[" ver "\\]" {in_sec=1; next}
-      in_sec && /^## \\[/ { exit 0 }
-      in_sec && $0 ~ /^- \\.\\.\\./ { exit 1 }
+      in_sec && /^## \[/ { exit 0 }
+      in_sec && $0 ~ /^- \.\.\./ { exit 1 }
       END { exit 0 }
     ' CHANGELOG.md; then
       err "CHANGELOG.md содержит placeholder, заполни release notes"
