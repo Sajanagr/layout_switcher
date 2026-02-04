@@ -187,10 +187,10 @@ ensure_changelog_section() {
 generate_release_notes() {
   local file="CHANGELOG.md"
   awk -v ver="$ver" '
-    BEGIN {in=0; sec=""; added=""; changed=""; fixed=""; found=0;}
-    $0 ~ "^## \\[" ver "\\]" {in=1; found=1; next}
-    in && /^## \\[/ { exit }
-    in {
+    BEGIN {in_sec=0; sec=""; added=""; changed=""; fixed=""; found=0;}
+    $0 ~ "^## \\[" ver "\\]" {in_sec=1; found=1; next}
+    in_sec && /^## \\[/ { exit }
+    in_sec {
       if ($0 ~ /^### Added/) { sec="added"; next }
       if ($0 ~ /^### Changed/) { sec="changed"; next }
       if ($0 ~ /^### Fixed/) { sec="fixed"; next }
@@ -580,10 +580,10 @@ create_tag() {
     fi
 
     if ! awk -v ver="$ver" '
-      BEGIN {in=0}
-      $0 ~ "^## \\[" ver "\\]" {in=1; next}
-      in && /^## \\[/ { exit 0 }
-      in && $0 ~ /^- \\.\\.\\./ { exit 1 }
+      BEGIN {in_sec=0}
+      $0 ~ "^## \\[" ver "\\]" {in_sec=1; next}
+      in_sec && /^## \\[/ { exit 0 }
+      in_sec && $0 ~ /^- \\.\\.\\./ { exit 1 }
       END { exit 0 }
     ' CHANGELOG.md; then
       err "CHANGELOG.md содержит placeholder, заполни release notes"
