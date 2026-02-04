@@ -647,7 +647,10 @@ create_tag() {
 
     local release_notes_tmp
     release_notes_tmp="$(mktemp)"
-    trap 'rm -f "$release_notes_tmp"' RETURN
+
+    # Важно: при set -u нельзя ссылаться на несуществующую переменную в trap.
+    # Плюс trap нужно снять после использования, иначе он сработает при выходе из скрипта.
+    trap 'rm -f "${release_notes_tmp:-}"; trap - RETURN' RETURN
     if ! generate_release_notes > "$release_notes_tmp"; then
       local notes_status=$?
       if [[ "$notes_status" -eq 2 ]]; then
