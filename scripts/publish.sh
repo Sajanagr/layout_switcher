@@ -63,7 +63,10 @@ ask_yes_no_default_yes() {
 }
 
 get_latest_release_tag() {
-  git tag --list "v[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | head -n 1
+  git tag --list "v*" \
+    | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+    | sort -V \
+    | tail -n 1
 }
 
 bump_semver() {
